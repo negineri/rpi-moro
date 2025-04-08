@@ -18,8 +18,9 @@ pip install git+ssh://git@github.com/negineri/moro.git
 
 - uv
 
-### Run
+### Setup
 
 ```text
 uv run moro
+pre-commit install
 ```
