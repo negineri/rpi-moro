@@ -138,3 +138,7 @@ project_name/
   - Build verification (including Docker if used)
 
 ---
+
+## 12. **Tools Recommendations**
+
+- Use **uv** instead of pip, pyenv and other.
