@@ -1,0 +1,8 @@
+{
+    "recommendations": [
+        "ms-python.python", // Python support
+        "ms-python.vscode-pylance", // Type checking and IntelliSense
+        "charliermarsh.ruff", // Linting with Ruff
+        "ms-python.mypy-type-checker" // Type checking with MyPy
+    ]
+}
