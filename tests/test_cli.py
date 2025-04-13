@@ -2,7 +2,7 @@
 
 from click.testing import CliRunner
 
-from moro._cli import cli
+from moro.cli import cli
 
 
 def test_example_command() -> None:

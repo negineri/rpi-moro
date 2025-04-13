@@ -2,8 +2,10 @@
 
 import click
 
+from moro.cli._utils import AliasedGroup
 
-@click.group()
+
+@click.group(cls=AliasedGroup)
 def cli() -> None:
     """Entry point for the CLI."""
     pass
