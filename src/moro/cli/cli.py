@@ -13,6 +13,7 @@ logger = getLogger(__name__)
 
 
 @click.group(cls=AliasedGroup)
+@click.version_option()
 def cli() -> None:
     """Entry point for the CLI."""
     config = ConfigRepo().read()
