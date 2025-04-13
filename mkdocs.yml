@@ -1,0 +1,28 @@
+site_name: Moro Documentation
+nav:
+  - Home: index.md
+  - Code Reference: reference/
+theme:
+  name: readthedocs
+watch:
+  - src
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            show_root_heading: true
+            show_submodules: false
+            show_source: false
+            show_category_heading: true
+            merge_init_into_class: true
+  - gen-files:
+      scripts:
+      - docs/gen_ref_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - exclude:
+      glob:
+        - "gen_ref_pages.py"

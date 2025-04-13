@@ -15,4 +15,5 @@ repos:
       - id: mypy
         language: system
         entry: uv run mypy
-        args: ["--config-file=pyproject.toml"]
+        pass_filenames: false
+        args: [".", "--config-file=pyproject.toml"]
