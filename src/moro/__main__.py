@@ -1,5 +1,5 @@
 """CLI entry point for the moro package."""
 
-from moro.cli import cli
+from moro.cli.cli import cli
 
 cli()

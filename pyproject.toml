@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-moro = "moro.cli:cli"
+moro = "moro.cli.cli:cli"
 
 [build-system]
 requires = ["hatchling"]
