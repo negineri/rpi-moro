@@ -81,7 +81,14 @@ convention = "google"
 dev = [
     "mypy>=1.15.0",
     "pytest>=8.3.5",
+    "pytest-cov>=6.1.1",
     "ruff>=0.11.4",
     "tox>=4.25.0",
     "types-pyyaml>=6.0.12.20250402",
 ]
+
+[tool.pytest.ini_options]
+addopts = "-vv --tb=short -s"
+pythonpath = ["src"]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

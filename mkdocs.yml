@@ -2,6 +2,7 @@ site_name: Moro Documentation
 nav:
   - Home: index.md
   - Code Reference: reference/
+  - Coverage report: dev/reports/coverage.md
 theme:
   name: readthedocs
 watch:
@@ -26,3 +27,5 @@ plugins:
   - exclude:
       glob:
         - "gen_ref_pages.py"
+  - coverage:
+      page_path: dev/reports/coverage

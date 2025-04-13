@@ -5,6 +5,9 @@
             "source.organizeImports.ruff": "explicit"
         }
     },
+    "python.analysis.ignore": [
+        "tests/test_*.py"
+    ],
     "python.testing.pytestArgs": [
         "tests"
     ],
