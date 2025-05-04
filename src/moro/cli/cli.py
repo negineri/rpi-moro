@@ -6,6 +6,7 @@ from logging.config import dictConfig
 import click
 
 from moro.cli._utils import AliasedGroup
+from moro.cli.camera_commands import camera_group
 from moro.cli.example import example
 from moro.config.settings import ConfigRepo
 
@@ -21,3 +22,4 @@ def cli() -> None:
 
 
 cli.add_command(example)
+cli.add_command(camera_group)
