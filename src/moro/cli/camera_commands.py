@@ -2,7 +2,7 @@
 
 import logging
 import sys
-from typing import Union
+from typing import Optional, Tuple, Union
 
 import click
 
@@ -29,6 +29,30 @@ def camera_group() -> None:
     help="Host address to bind the server to (default: 0.0.0.0)",
 )
 @click.option("--port", "-p", default=5000, help="Port to run the server on (default: 5000)")
+@click.option(
+    "--stream-resolution",
+    type=(int, int),
+    default=None,
+    help="Resize frames to this resolution (width, height). Example: --stream-resolution 320 240",
+)
+@click.option("--grayscale", is_flag=True, help="Convert frames to grayscale to reduce bandwidth")
+@click.option(
+    "--motion-detection",
+    is_flag=True,
+    help="Enable motion-based frame skipping to reduce bandwidth when scene is static",
+)
+@click.option(
+    "--motion-threshold",
+    type=float,
+    default=0.005,
+    help="Threshold for motion detection (0.0-1.0, higher means less sensitive, default: 0.005)",
+)
+@click.option(
+    "--motion-max-skip",
+    type=int,
+    default=30,
+    help="Maximum number of consecutive frames to skip in motion detection (default: 30)",
+)
 def stream_camera(
     device: str,
     width: int,
@@ -37,10 +61,21 @@ def stream_camera(
     quality: int,
     host: str,
     port: int,
+    stream_resolution: Optional[Tuple[int, int]],
+    grayscale: bool,
+    motion_detection: bool,
+    motion_threshold: float,
+    motion_max_skip: int,
 ) -> None:
     """Start camera streaming server.
 
     Streams USB camera feed to a web interface that can be accessed via browser.
+
+    The command supports several bandwidth reduction options:
+
+    - Reduce resolution via --stream-resolution
+    - Use grayscale conversion with --grayscale
+    - Skip frames when scene is static with --motion-detection
     """
     try:
         # Convert device to int if it's a number, otherwise keep as string (for paths)
@@ -57,7 +92,29 @@ def stream_camera(
         click.echo(f"Starting camera streaming server at http://{host}:{port}")
         click.echo("Press Ctrl+C to stop the server")
 
-        streamer = CameraStreamer(camera=camera, fps=fps, quality=quality, host=host, port=port)
+        # Log bandwidth reduction settings
+        if stream_resolution:
+            click.echo(f"Streaming resolution: {stream_resolution[0]}x{stream_resolution[1]}")
+        if grayscale:
+            click.echo("Grayscale mode enabled")
+        if motion_detection:
+            click.echo(
+                f"Motion detection enabled (threshold: {motion_threshold}, "
+                f"max consecutive skips: {motion_max_skip})"
+            )
+
+        streamer = CameraStreamer(
+            camera=camera,
+            fps=fps,
+            quality=quality,
+            host=host,
+            port=port,
+            resolution=stream_resolution,
+            grayscale=grayscale,
+            motion_detection=motion_detection,
+            motion_threshold=motion_threshold,
+            motion_max_skip_frames=motion_max_skip,
+        )
 
         try:
             streamer.start()
