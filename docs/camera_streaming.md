@@ -36,7 +36,7 @@
 
 ### データフロー
 
-```
+```text
 USBカメラ → カメラモジュール → ストリーミングサーバー → ウェブブラウザ（クライアント）
 ```
 
@@ -83,7 +83,7 @@ USBカメラ → カメラモジュール → ストリーミングサーバー 
 
 プロジェクト既存の構造に合わせた形で以下のように実装します：
 
-```
+```text
 src/
     moro/
         modules/
@@ -199,6 +199,6 @@ HTTP Live Streaming (HLS) は、特にインターネット経由のストリー
 
 ## 11. 参考資料
 
-- OpenCV ドキュメント: https://docs.opencv.org/
-- Flask ドキュメント: https://flask.palletsprojects.com/
-- Flask-SocketIO ドキュメント: https://flask-socketio.readthedocs.io/
+- OpenCV ドキュメント: <https://docs.opencv.org/>
+- Flask ドキュメント: <https://flask.palletsprojects.com/>
+- Flask-SocketIO ドキュメント: <https://flask-socketio.readthedocs.io/>

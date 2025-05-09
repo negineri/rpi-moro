@@ -8,11 +8,11 @@ import base64
 import logging
 import threading
 import time
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import cv2
 import numpy as np
-from flask import Flask
+from flask import Blueprint, Flask, render_template
 from flask_socketio import SocketIO
 
 from moro.modules.camera.camera import Camera, CameraError
@@ -50,9 +50,9 @@ class CameraStreamer:
         camera: Camera,
         fps: int = 15,
         quality: int = 70,
-        host: str = "0.0.0.0",
+        host: str = "0.0.0.0",  # noqa: S104
         port: int = 5000,
-        resolution: Optional[Tuple[int, int]] = None,
+        resolution: Optional[tuple[int, int]] = None,
         grayscale: bool = False,
         motion_detection: bool = False,
         motion_threshold: float = 0.005,
@@ -67,7 +67,7 @@ class CameraStreamer:
             quality: JPEG compression quality (0-100). Defaults to 70.
             host: Host address to bind the server to. Defaults to "0.0.0.0".
             port: Port to run the server on. Defaults to 5000.
-            resolution: Optional tuple (width, height) to resize frames. Defaults to None (no resize).
+            resolution: Optional tuple (width, height) to resize frames. Defaults to None.
             grayscale: Whether to convert frames to grayscale. Defaults to True.
             motion_detection: Whether to enable motion-based frame skipping. Defaults to False.
             motion_threshold: Threshold for motion detection (0.0-1.0). Defaults to 0.005.
@@ -88,7 +88,23 @@ class CameraStreamer:
 
         # Flask setup
         self.app = Flask(__name__)
-        # SocketIO setupを修正: engineioログを取得せず、ping_timeoutだけ設定
+
+        # カメラモジュール用のBlueprintを作成
+        self.camera_bp = Blueprint(
+            "camera",
+            __name__,
+            template_folder="templates",
+            static_folder="static",
+            static_url_path="/camera/static",
+        )
+
+        # ルートの設定 - Blueprintを登録する前に行う
+        self._setup_routes()
+
+        # Blueprintをアプリケーションに登録
+        self.app.register_blueprint(self.camera_bp, url_prefix="")
+
+        # SocketIO setupを修正
         self.socketio = SocketIO(
             self.app,
             cors_allowed_origins="*",
@@ -110,10 +126,7 @@ class CameraStreamer:
         self._cached_frame: Optional[str] = None
         self._camera_info: Optional[dict[str, Any]] = None
 
-        # Set up Flask routes
-        self._setup_routes()
-
-        # Set up SocketIO event handlers
+        # SocketIOイベントハンドラの設定
         self._setup_socketio_handlers()
 
         logger.debug(
@@ -126,174 +139,10 @@ class CameraStreamer:
     def _setup_routes(self) -> None:
         """Set up Flask routes for the web interface."""
 
-        @self.app.route("/")
+        @self.camera_bp.route("/")
         def index() -> str:  # type: ignore [unused-ignore]
             """Serve the index page with video streaming UI."""
-            return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>カメラストリーミング</title>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; }
-                    h1 { color: #333; }
-                    #video-container { margin: 20px auto; max-width: 800px; }
-                    #stream { max-width: 100%; border: 1px solid #ddd; }
-                    .control-panel { margin: 20px auto; max-width: 600px; }
-                    button { 
-                        background-color: #4CAF50; 
-                        border: none; 
-                        color: white;
-                        padding: 10px 20px;
-                        text-align: center;
-                        text-decoration: none;
-                        display: inline-block;
-                        font-size: 16px;
-                        margin: 4px 2px;
-                        cursor: pointer;
-                        border-radius: 4px;
-                    }
-                    .camera-info {
-                        margin: 20px auto;
-                        max-width: 600px;
-                        text-align: left;
-                        background-color: #f9f9f9;
-                        padding: 15px;
-                        border-radius: 5px;
-                    }
-                    .loading-overlay {
-                        position: absolute;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        background-color: rgba(255, 255, 255, 0.7);
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        z-index: 1000;
-                        transition: opacity 0.5s;
-                    }
-                    .spinner {
-                        width: 40px;
-                        height: 40px;
-                        border: 5px solid #f3f3f3;
-                        border-top: 5px solid #3498db;
-                        border-radius: 50%;
-                        animation: spin 1s linear infinite;
-                    }
-                    @keyframes spin {
-                        0% { transform: rotate(0deg); }
-                        100% { transform: rotate(360deg); }
-                    }
-                </style>
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-                <script>
-                    // 即時関数を使用して早期初期化
-                    (function() {
-                        // socket.ioの接続をすぐに開始
-                        const socket = io.connect(window.location.origin, {
-                            reconnectionDelayMax: 1000,
-                            transports: ['websocket'], // websocketを優先して使用
-                            forceNew: true
-                        });
-
-                        // DOMContentLoadedを待たずにsocketの初期化
-                        let streamElement;
-                        let fpsCounter;
-                        let cameraInfo;
-                        let receivedFirstFrame = false;
-                        let loadingOverlay;
-                        
-                        // フレームカウンター変数
-                        let frameCount = 0;
-                        let lastTime = new Date().getTime();
-                        
-                        // フレーム受信ハンドラを即時設定
-                        socket.on('frame', function(data) {
-                            // DOM要素がまだ取得されていない場合は取得
-                            if (!streamElement) {
-                                streamElement = document.getElementById('stream');
-                            }
-                            
-                            if (streamElement && data.frame) {
-                                streamElement.src = 'data:image/jpeg;base64,' + data.frame;
-                                
-                                // 最初のフレームを受信したら読み込みオーバーレイを非表示
-                                if (!receivedFirstFrame) {
-                                    receivedFirstFrame = true;
-                                    if (loadingOverlay) {
-                                        loadingOverlay.style.opacity = '0';
-                                        setTimeout(() => {
-                                            loadingOverlay.style.display = 'none';
-                                        }, 500);
-                                    }
-                                }
-                                
-                                // FPSカウンターの更新
-                                frameCount++;
-                                const now = new Date().getTime();
-                                if (fpsCounter && now - lastTime >= 1000) {
-                                    const fps = frameCount / ((now - lastTime) / 1000);
-                                    fpsCounter.innerText = fps.toFixed(1);
-                                    frameCount = 0;
-                                    lastTime = now;
-                                }
-                            }
-                        });
-                        
-                        // カメラ情報受信ハンドラも設定
-                        socket.on('camera_info', function(info) {
-                            if (!cameraInfo) {
-                                cameraInfo = document.getElementById('camera-info');
-                            }
-                            
-                            if (cameraInfo && info) {
-                                let infoHTML = '<h3>カメラ情報</h3>';
-                                infoHTML += '<ul>';
-                                for (const [key, value] of Object.entries(info)) {
-                                    infoHTML += `<li>${key}: ${value}</li>`;
-                                }
-                                infoHTML += '</ul>';
-                                cameraInfo.innerHTML = infoHTML;
-                            }
-                        });
-                        
-                        // DOMContentLoadedでDOMへの参照を取得
-                        document.addEventListener('DOMContentLoaded', function() {
-                            streamElement = document.getElementById('stream');
-                            fpsCounter = document.getElementById('fps-counter');
-                            cameraInfo = document.getElementById('camera-info');
-                            loadingOverlay = document.getElementById('loading-overlay');
-                            
-                            // 接続状態を確認し、必要なら明示的に再接続
-                            if (!socket.connected) {
-                                socket.connect();
-                            }
-                        });
-                    })();
-                </script>
-            </head>
-            <body>
-                <h1>ラズベリーパイ カメラストリーム</h1>
-                <div id="video-container" style="position: relative;">
-                    <img id="stream" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
-                    <div id="loading-overlay" class="loading-overlay">
-                        <div class="spinner"></div>
-                    </div>
-                </div>
-                <div class="control-panel">
-                    <p>ストリーミング速度: <span id="fps-counter">0.0</span> FPS</p>
-                </div>
-                <div id="camera-info" class="camera-info">
-                    <h3>カメラ情報</h3>
-                    <p>接続中...</p>
-                </div>
-            </body>
-            </html>
-            """
+            return render_template("stream.html")
 
     def _setup_socketio_handlers(self) -> None:
         """Set up SocketIO event handlers for client connections.
@@ -304,7 +153,7 @@ class CameraStreamer:
         """
 
         @self.socketio.on("connect")
-        def handle_connect() -> None:
+        def handle_connect() -> None:  # type: ignore [unused-ignore]
             """Handle new client connection.
 
             When a client connects, immediately send the cached frame
@@ -377,7 +226,7 @@ class CameraStreamer:
                     # Log every 10 frames to avoid excessive logging
                     if self._skipped_frames_count % 10 == 1:
                         logger.debug(
-                            f"Motion below threshold: {change_ratio:.6f} < {self.motion_threshold}, "
+                            f"Motion below threshold: {change_ratio:.6f} < {self.motion_threshold}, "  # noqa: E501
                             f"skipped {self._skipped_frames_count} frames"
                         )
                     return None
