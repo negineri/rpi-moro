@@ -17,7 +17,12 @@ from flask_socketio import SocketIO
 
 from moro.modules.camera.camera import Camera, CameraError
 
+# ロガーの設定
 logger = logging.getLogger(__name__)
+werkzeug_logger = logging.getLogger("werkzeug")
+# 明示的にwerkzeugのログレベルをルートロガーから継承
+root_logger = logging.getLogger()
+werkzeug_logger.setLevel(root_logger.level)
 
 
 class CameraStreamer:
@@ -48,8 +53,8 @@ class CameraStreamer:
         host: str = "0.0.0.0",
         port: int = 5000,
         resolution: Optional[Tuple[int, int]] = None,
-        grayscale: bool = True,
-        motion_detection: bool = True,
+        grayscale: bool = False,
+        motion_detection: bool = False,
         motion_threshold: float = 0.005,
         motion_max_skip_frames: int = 30,
         preload_frames: bool = True,
@@ -64,7 +69,7 @@ class CameraStreamer:
             port: Port to run the server on. Defaults to 5000.
             resolution: Optional tuple (width, height) to resize frames. Defaults to None (no resize).
             grayscale: Whether to convert frames to grayscale. Defaults to True.
-            motion_detection: Whether to enable motion-based frame skipping. Defaults to True.
+            motion_detection: Whether to enable motion-based frame skipping. Defaults to False.
             motion_threshold: Threshold for motion detection (0.0-1.0). Defaults to 0.005.
             motion_max_skip_frames: Maximum number of consecutive frames to skip. Defaults to 30.
             preload_frames: Whether to preload frames before client connections. Defaults to True.
@@ -83,13 +88,13 @@ class CameraStreamer:
 
         # Flask setup
         self.app = Flask(__name__)
-        # SocketIO setupを修正: engineioログを取得し、ping_timeoutを増やす
+        # SocketIO setupを修正: engineioログを取得せず、ping_timeoutだけ設定
         self.socketio = SocketIO(
             self.app,
             cors_allowed_origins="*",
             async_mode="threading",
-            logger=True,
-            engineio_logger=True,
+            logger=False,  # SocketIOのロガーを無効化
+            engineio_logger=False,  # EngineIOのロガーを無効化
             ping_timeout=60,
         )
 
