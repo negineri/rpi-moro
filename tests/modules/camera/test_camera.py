@@ -35,7 +35,7 @@ class TestCamera(unittest.TestCase):
         assert camera.height == self.test_height
         assert camera.fps == self.test_fps
         assert camera.is_running is False
-        assert camera._camera is None  # type: ignore
+        assert camera._camera is None  # type: ignore [unused-ignore]
 
         # モックが呼び出されていないことを確認
         mock_video_capture.assert_not_called()
@@ -63,7 +63,7 @@ class TestCamera(unittest.TestCase):
 
         assert "Failed to open camera" in str(exc_info.value)
         assert camera.is_running is False
-        assert camera._camera is None  # type: ignore
+        assert camera._camera is None  # type: ignore [unused-ignore]
         mock_camera.release.assert_called_once()
 
     @patch("moro.modules.camera.camera.cv2.VideoCapture")
@@ -79,7 +79,7 @@ class TestCamera(unittest.TestCase):
         assert "Error starting camera" in str(exc_info.value)
         assert "Test exception" in str(exc_info.value)
         assert camera.is_running is False
-        assert camera._camera is None  # type: ignore
+        assert camera._camera is None  # type: ignore [unused-ignore]
 
     @patch("moro.modules.camera.camera.cv2.VideoCapture")
     def test_camera_stop(self, mock_video_capture: MagicMock) -> None:
@@ -93,7 +93,7 @@ class TestCamera(unittest.TestCase):
 
         camera.stop()
         assert camera.is_running is False
-        assert camera._camera is None  # type: ignore
+        assert camera._camera is None  # type: ignore [unused-ignore]
         mock_camera.release.assert_called_once()
 
     @patch("moro.modules.camera.camera.cv2.VideoCapture")
@@ -168,9 +168,9 @@ class TestCamera(unittest.TestCase):
 
         with Camera(self.test_device_id) as camera:
             assert camera.is_running is True
-            assert camera._camera is not None  # type: ignore
+            assert camera._camera is not None  # type: ignore [unused-ignore]
 
         # コンテキスト終了後、カメラが停止していることを確認
         assert camera.is_running is False
-        assert camera._camera is None  # type: ignore
+        assert camera._camera is None  # type: ignore [unused-ignore]
         mock_camera.release.assert_called_once()
