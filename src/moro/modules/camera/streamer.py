@@ -1,21 +1,20 @@
-"""Streaming module for USB camera.
+"""Camera streaming implementation.
 
-This module provides functionality for streaming camera frames over HTTP
-using Flask and Flask-SocketIO.
+This module provides the main camera streaming functionality using Flask and Flask-SocketIO.
 """
 
-import base64
 import logging
 import threading
 import time
 from typing import Any, Optional
 
-import cv2
-import numpy as np
 from flask import Blueprint, Flask, render_template
 from flask_socketio import SocketIO
 
 from moro.modules.camera.camera import Camera, CameraError
+from moro.modules.camera.emitters import SocketIOFrameEmitter
+from moro.modules.camera.processors import DefaultFrameProcessor
+from moro.modules.camera.protocols import FrameEmitter, FrameProcessor
 
 # ロガーの設定
 logger = logging.getLogger(__name__)
@@ -33,12 +32,10 @@ class CameraStreamer:
     Attributes:
         camera: The Camera instance used for streaming.
         fps: Target frames per second for the stream.
-        quality: JPEG compression quality (0-100).
-        resolution: Optional resolution for resizing frames (width, height).
-        grayscale: Whether to convert frames to grayscale.
-        motion_detection: Whether to use motion detection to skip similar frames.
-        motion_threshold: Threshold for motion detection (0.0-1.0).
-        motion_max_skip_frames: Maximum number of consecutive frames to skip.
+        host: Host address to bind the server to.
+        port: Port to run the server on.
+        frame_processor: Component that processes video frames.
+        frame_emitter: Component that emits frames to clients.
         app: Flask application instance.
         socketio: SocketIO server instance.
         stream_active: Boolean indicating if streaming is active.
@@ -58,6 +55,8 @@ class CameraStreamer:
         motion_threshold: float = 0.005,
         motion_max_skip_frames: int = 30,
         preload_frames: bool = True,
+        frame_processor: Optional[FrameProcessor] = None,
+        frame_emitter: Optional[FrameEmitter] = None,
     ) -> None:
         """Initialize a CameraStreamer instance.
 
@@ -68,11 +67,13 @@ class CameraStreamer:
             host: Host address to bind the server to. Defaults to "0.0.0.0".
             port: Port to run the server on. Defaults to 5000.
             resolution: Optional tuple (width, height) to resize frames. Defaults to None.
-            grayscale: Whether to convert frames to grayscale. Defaults to True.
+            grayscale: Whether to convert frames to grayscale. Defaults to False.
             motion_detection: Whether to enable motion-based frame skipping. Defaults to False.
             motion_threshold: Threshold for motion detection (0.0-1.0). Defaults to 0.005.
             motion_max_skip_frames: Maximum number of consecutive frames to skip. Defaults to 30.
             preload_frames: Whether to preload frames before client connections. Defaults to True.
+            frame_processor: Custom frame processor. If None, a DefaultFrameProcessor is used.
+            frame_emitter: Custom frame emitter. If None, a SocketIOFrameEmitter is used.
         """
         self.camera = camera
         self.fps = fps
@@ -114,26 +115,34 @@ class CameraStreamer:
             ping_timeout=60,
         )
 
+        # Initialize frame processor and emitter
+        self.frame_processor = frame_processor or DefaultFrameProcessor(
+            resolution=resolution,
+            grayscale=grayscale,
+            motion_detection=motion_detection,
+            motion_threshold=motion_threshold,
+            motion_max_skip_frames=motion_max_skip_frames,
+        )
+
+        self.frame_emitter = frame_emitter or SocketIOFrameEmitter(
+            socketio=self.socketio,
+            quality=quality,
+        )
+
         # Streaming state
         self.stream_active = False
         self._stream_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        self._previous_frame: Optional[np.ndarray[Any, np.dtype[Any]]] = None
-        self._skipped_frames_count: int = 0
-        self._last_change_ratio: float = 0.0
-
-        # Cached frame for quick initial delivery
-        self._cached_frame: Optional[str] = None
-        self._camera_info: Optional[dict[str, Any]] = None
 
         # SocketIOイベントハンドラの設定
         self._setup_socketio_handlers()
 
         logger.debug(
-            f"Initialized CameraStreamer with fps={fps}, quality={quality}, "
-            f"host={host}, port={port}, resolution={resolution}, grayscale={grayscale}, "
-            f"motion_detection={motion_detection}, motion_threshold={motion_threshold}, "
-            f"motion_max_skip_frames={motion_max_skip_frames}, preload_frames={preload_frames}"
+            f"Initialized CameraStreamer with fps={fps}, "
+            f"host={host}, port={port}, "
+            f"frame_processor={self.frame_processor.__class__.__name__}, "
+            f"frame_emitter={self.frame_emitter.__class__.__name__}, "
+            f"preload_frames={preload_frames}"
         )
 
     def _setup_routes(self) -> None:
@@ -162,93 +171,16 @@ class CameraStreamer:
             logger.info("New client connected")
             try:
                 # Send cached frame if available
-                if self._cached_frame:
+                if hasattr(self.frame_emitter, "cached_frame") and self.frame_emitter.cached_frame:
                     logger.debug("Sending cached frame to new client")
-                    self.socketio.emit("frame", {"frame": self._cached_frame})
+                    self.socketio.emit("frame", {"frame": self.frame_emitter.cached_frame})
 
                 # Send camera info if available
-                if self._camera_info:
+                if hasattr(self.frame_emitter, "camera_info") and self.frame_emitter.camera_info:
                     logger.debug("Sending camera info to new client")
-                    self.socketio.emit("camera_info", self._camera_info)
+                    self.socketio.emit("camera_info", self.frame_emitter.camera_info)
             except Exception as e:
                 logger.error(f"Error handling client connection: {e!s}")
-
-    def _process_frame(self, frame: np.ndarray[Any, Any]) -> Optional[np.ndarray[Any, Any]]:
-        """Process a frame according to the configured options.
-
-        This method applies resolution changes, grayscale conversion, and motion detection.
-
-        Args:
-            frame: The source frame to process.
-
-        Returns:
-            The processed frame or None if the frame should be skipped.
-        """
-        processed_frame = frame.copy()
-
-        # Resize the frame first if resolution is specified
-        if self.resolution:
-            processed_frame = cv2.resize(processed_frame, self.resolution)
-
-        # Apply motion detection if enabled
-        if self.motion_detection and self._previous_frame is not None:
-            # Force sending a frame if we've skipped too many
-            if self._skipped_frames_count >= self.motion_max_skip_frames:
-                logger.debug(f"Forced frame send after {self._skipped_frames_count} skipped frames")
-                self._skipped_frames_count = 0
-            # Check for motion only if frame shapes match
-            elif processed_frame.shape == self._previous_frame.shape:
-                # Convert to grayscale for motion detection (reduces noise and color changes)
-                gray_current = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
-                gray_previous = cv2.cvtColor(self._previous_frame, cv2.COLOR_BGR2GRAY)
-
-                # Apply Gaussian blur to reduce noise
-                gray_current = cv2.GaussianBlur(gray_current, (5, 5), 0)
-                gray_previous = cv2.GaussianBlur(gray_previous, (5, 5), 0)
-
-                # Compute absolute difference between current and previous frame
-                diff = cv2.absdiff(gray_current, gray_previous)
-
-                # Apply threshold to highlight significant changes
-                _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
-
-                # Count non-zero pixels (changed pixels)
-                non_zero = np.count_nonzero(thresh)
-                total_pixels = thresh.shape[0] * thresh.shape[1]
-                change_ratio = non_zero / total_pixels
-
-                # Store for logging
-                self._last_change_ratio = change_ratio
-
-                # Skip frame if change is below threshold
-                if change_ratio < self.motion_threshold:
-                    self._skipped_frames_count += 1
-                    # Log every 10 frames to avoid excessive logging
-                    if self._skipped_frames_count % 10 == 1:
-                        logger.debug(
-                            f"Motion below threshold: {change_ratio:.6f} < {self.motion_threshold}, "  # noqa: E501
-                            f"skipped {self._skipped_frames_count} frames"
-                        )
-                    return None
-                if self._skipped_frames_count > 0:
-                    logger.debug(
-                        f"Motion detected: {change_ratio:.6f} > {self.motion_threshold}, "
-                        f"sent frame after {self._skipped_frames_count} skipped frames"
-                    )
-                self._skipped_frames_count = 0
-
-        # Apply grayscale conversion if requested (after motion detection)
-        if self.grayscale:
-            processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2GRAY)
-            # Convert back to 3 channels for consistent processing
-            processed_frame = cv2.cvtColor(processed_frame, cv2.COLOR_GRAY2BGR)
-
-        # Store frame for next comparison (always store original/color frame for motion detection)
-        self._previous_frame = (
-            frame.copy() if self.resolution is None else cv2.resize(frame, self.resolution)
-        )
-
-        return processed_frame
 
     def _stream_frames(self) -> None:
         """Stream frames from the camera at the specified FPS.
@@ -265,24 +197,9 @@ class CameraStreamer:
         try:
             camera_info = self.camera.get_camera_info()
             # Add streaming configuration to camera info
-            camera_info.update(
-                {
-                    "stream_fps": self.fps,
-                    "stream_quality": self.quality,
-                    "stream_resolution": str(self.resolution) if self.resolution else "Original",
-                    "stream_grayscale": self.grayscale,
-                    "stream_motion_detection": self.motion_detection,
-                    "stream_motion_threshold": self.motion_threshold
-                    if self.motion_detection
-                    else "N/A",
-                    "stream_motion_max_skip": self.motion_max_skip_frames
-                    if self.motion_detection
-                    else "N/A",
-                }
-            )
-            # Store camera info for new client connections
-            self._camera_info = camera_info
-            self.socketio.emit("camera_info", camera_info)
+            camera_info.update(self._get_streaming_config())
+            # Emit camera info to clients
+            self.frame_emitter.emit_camera_info(camera_info)
         except CameraError as e:
             logger.error(f"Failed to get camera info: {e!s}")
 
@@ -296,10 +213,10 @@ class CameraStreamer:
             try:
                 frame = self.camera.read_frame()
                 if frame is not None:
-                    # Process frame according to bandwidth reduction settings
-                    processed_frame = self._process_frame(frame)
+                    # Process frame according to settings
+                    processed_frame = self.frame_processor.process_frame(frame)
 
-                    # Skip frame if motion detection indicated no significant change
+                    # Skip frame if processor indicated no significant change
                     if processed_frame is None:
                         process_time = time.time() - start_time
                         sleep_time = max(0, frame_interval - process_time)
@@ -307,25 +224,25 @@ class CameraStreamer:
                             time.sleep(sleep_time)
                         continue
 
-                    # Encode frame to JPEG
-                    _, buffer = cv2.imencode(
-                        ".jpg", processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality]
-                    )
-                    # Convert to base64 for sending over WebSocket
-                    b64_frame = base64.b64encode(buffer).decode("utf-8")
-                    # Store the latest frame for new clients
-                    self._cached_frame = b64_frame
-                    self.socketio.emit("frame", {"frame": b64_frame})
+                    # Emit processed frame to clients
+                    self.frame_emitter.emit_frame(processed_frame)
 
                     # Count frames for FPS logging
                     frame_count += 1
                     if time.time() - last_fps_log >= 10.0:  # Log every 10 seconds
                         actual_fps = frame_count / (time.time() - last_fps_log)
+
+                        # Get monitoring info if available
                         skipped_info = ""
-                        if self.motion_detection:
-                            skipped_info = f", motion_ratio: {self._last_change_ratio:.6f}"
-                            if self._skipped_frames_count > 0:
-                                skipped_info += f", skipped: {self._skipped_frames_count}"
+                        if hasattr(self.frame_processor, "last_change_ratio"):
+                            ratio = self.frame_processor.last_change_ratio
+                            skipped_info = f", motion_ratio: {ratio:.6f}"
+
+                            has_skip = hasattr(self.frame_processor, "skipped_frames_count")
+                            if has_skip and self.frame_processor.skipped_frames_count > 0:
+                                skip_count = self.frame_processor.skipped_frames_count
+                                skipped_info += f", skipped: {skip_count}"
+
                         logger.info(f"Streaming at {actual_fps:.1f} FPS{skipped_info}")
                         frame_count = 0
                         last_fps_log = time.time()
@@ -346,6 +263,49 @@ class CameraStreamer:
                 time.sleep(sleep_time)
 
         logger.info("Frame streaming stopped")
+
+    def _get_streaming_config(self) -> dict[str, Any]:
+        """Get the current streaming configuration.
+
+        Returns:
+            Dictionary with current streaming settings.
+        """
+        # Get frame processor config
+        processor_config: dict[str, Any] = {}
+
+        if isinstance(self.frame_processor, DefaultFrameProcessor):
+            processor = self.frame_processor
+            processor_config = {
+                "stream_resolution": str(processor.resolution)
+                if processor.resolution
+                else "Original",
+                "stream_grayscale": processor.grayscale,
+                "stream_motion_detection": processor.motion_detection,
+                "stream_motion_threshold": (
+                    processor.motion_threshold if processor.motion_detection else "N/A"
+                ),
+                "stream_motion_max_skip": (
+                    processor.motion_max_skip_frames if processor.motion_detection else "N/A"
+                ),
+            }
+
+        # Get emitter config
+        emitter_config: dict[str, Any] = {}
+        if isinstance(self.frame_emitter, SocketIOFrameEmitter):
+            emitter_config = {
+                "stream_quality": self.frame_emitter.quality,
+            }
+
+        # Base config
+        config = {
+            "stream_fps": self.fps,
+        }
+
+        # Merge configs
+        config.update(processor_config)
+        config.update(emitter_config)
+
+        return config
 
     def start(self) -> None:
         """Start the streaming server and begin streaming frames.
@@ -379,14 +339,10 @@ class CameraStreamer:
                 # Capture the initial frame for caching
                 initial_frame = self.camera.read_frame()
                 if initial_frame is not None:
-                    processed_frame = self._process_frame(initial_frame)
+                    processed_frame = self.frame_processor.process_frame(initial_frame)
                     if processed_frame is not None:
-                        # Encode frame to JPEG
-                        _, buffer = cv2.imencode(
-                            ".jpg", processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality]
-                        )
-                        # Convert to base64 for sending over WebSocket
-                        self._cached_frame = base64.b64encode(buffer).decode("utf-8")
+                        # Emit frame to set up cache
+                        self.frame_emitter.emit_frame(processed_frame)
                         logger.info("Initial frame preloaded successfully")
                     else:
                         logger.warning("Failed to process initial frame")

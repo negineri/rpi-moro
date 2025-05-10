@@ -5,6 +5,6 @@ connected to a Raspberry Pi.
 """
 
 from moro.modules.camera.camera import Camera, CameraError
-from moro.modules.camera.streaming import CameraStreamer
+from moro.modules.camera.streamer import CameraStreamer
 
 __all__ = ["Camera", "CameraError", "CameraStreamer"]
