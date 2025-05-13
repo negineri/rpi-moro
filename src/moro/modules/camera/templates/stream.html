@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>カメラストリーミング</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; text-align: center; }
+        h1 { color: #333; }
+        #video-container { margin: 20px auto; max-width: 800px; }
+        #stream { max-width: 100%; border: 1px solid #ddd; }
+        .control-panel { margin: 20px auto; max-width: 600px; }
+        button { 
+            background-color: #4CAF50; 
+            border: none; 
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .camera-info {
+            margin: 20px auto;
+            max-width: 600px;
+            text-align: left;
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 0.5s;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="{{ url_for('camera.static', filename='js/stream.js') }}"></script>
+</head>
+<body>
+    <h1>ラズベリーパイ カメラストリーム</h1>
+    <div id="video-container" style="position: relative;">
+        <img id="stream" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=">
+        <div id="loading-overlay" class="loading-overlay">
+            <div class="spinner"></div>
+        </div>
+    </div>
+    <div class="control-panel">
+        <p>ストリーミング速度: <span id="fps-counter">0.0</span> FPS</p>
+    </div>
+    <div id="camera-info" class="camera-info">
+        <h3>カメラ情報</h3>
+        <p>接続中...</p>
+    </div>
+</body>
+</html>

@@ -14,6 +14,11 @@ dependencies = [
     "dotenv>=0.9.9",
     "injector>=0.22.0",
     "pre-commit>=4.2.0",
+    "opencv-python>=4.8.0",
+    "flask>=2.3.3",
+    "flask-socketio>=5.3.5",
+    "numpy>=1.24.0",
+    "imutils>=0.5.4",
 ]
 
 [project.scripts]
@@ -109,6 +114,7 @@ dev = [
     "pytest-cov>=6.1.1",
     "ruff>=0.11.4",
     "tox>=4.25.0",
+    "types-flask-socketio>=5.5.0.20250321",
     "types-pyyaml>=6.0.12.20250402",
 ]
 

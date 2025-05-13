@@ -19,6 +19,7 @@ pip install git+ssh://git@github.com/negineri/moro.git
 ### Requirements
 
 - uv
+- libopencv-dev
 
 ### Setup
 
